@@ -16,6 +16,11 @@
 #import "ConvoQueue.h"
 #import "HapticTyper.h"
 
+// Declare hook targets as UIViewController subclasses so Clang knows their
+// inherited UIKit methods/properties while Logos generates the runtime hooks.
+@interface BDChatConversationListViewController : UIViewController @end
+@interface BDChatConversationViewController : UIViewController @end
+
 // ─── Config (read from /var/mobile/Library/Preferences/com.jb.badoocapitalai.plist) ─────
 static NSDictionary *_prefs(void) {
     return [NSDictionary dictionaryWithContentsOfFile:
@@ -236,7 +241,7 @@ static BOOL _processingQueue = NO;
                                    completion:^{
                     // Tap send after a short pause (100-300 ms)
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
-                                   (int64_t)(jitteredDelay(200) * NSEC_PER_SEC)),
+                                   (int64_t)(0.2 * NSEC_PER_SEC)),
                                    dispatch_get_main_queue(), ^{
                         [self _tapSend];
                         // Inter-bubble pause before next content item (0.8–1.6 s)
