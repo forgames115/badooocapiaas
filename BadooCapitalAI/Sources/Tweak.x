@@ -18,8 +18,23 @@
 
 // Declare hook targets as UIViewController subclasses so Clang knows their
 // inherited UIKit methods/properties while Logos generates the runtime hooks.
-@interface BDChatConversationListViewController : UIViewController @end
-@interface BDChatConversationViewController : UIViewController @end
+@interface BDChatConversationListViewController : UIViewController
+- (void)_startProcessingQueueIfNeeded;
+- (void)_processNextEntry;
+- (void)_openAndSend:(NSArray<NSDictionary *> *)content toContactId:(NSString *)contactId;
+@end
+
+@interface BDChatConversationViewController : UIViewController
+- (void)_deliverContent:(NSArray<NSDictionary *> *)content;
+- (UITextField *)_findInputField;
+- (UIView *)_findViewOfClass:(Class)cls in:(UIView *)root;
+- (void)_tapSend;
+- (UIView *)_findSendButton:(UIView *)root;
+- (void)_sendTextDirect:(NSString *)text;
+- (void)_sendMediaFromURL:(NSString *)urlStr
+                     type:(NSString *)type
+               completion:(void (^)(void))done;
+@end
 
 // ─── Config (read from /var/mobile/Library/Preferences/com.jb.badoocapitalai.plist) ─────
 static NSDictionary *_prefs(void) {
