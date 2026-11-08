@@ -10,7 +10,7 @@ static double jitteredDelay(double baseMs) {
     return baseMs * (0.6 + gauss * 0.8) / 1000.0;
 }
 
-@interface HapticTyper () <CHHapticEngineDelegate>
+@interface HapticTyper ()
 @property (nonatomic, strong) CHHapticEngine *hapticEngine;
 @property (nonatomic, assign) BOOL cancelled;
 @end
@@ -35,7 +35,6 @@ static double jitteredDelay(double baseMs) {
     NSError *err;
     _hapticEngine = [[CHHapticEngine alloc] initAndReturnError:&err];
     if (!err) {
-        _hapticEngine.delegate = self;
         [_hapticEngine startWithCompletionHandler:nil];
     }
 }
@@ -162,16 +161,6 @@ static double jitteredDelay(double baseMs) {
         [arr addObject:sub];
     }];
     return arr;
-}
-
-#pragma mark - CHHapticEngineDelegate
-
-- (void)hapticEngineDidStop:(CHHapticEngine *)engine withStoppedReason:(NSError *)error {
-    // silent — haptics are optional
-}
-
-- (void)hapticEngineReset:(CHHapticEngine *)engine {
-    [engine startWithCompletionHandler:nil];
 }
 
 @end
