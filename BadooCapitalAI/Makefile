@@ -11,7 +11,7 @@ BadooCapitalAI_FILES = \
 	Sources/ConvoQueue.m \
 	Sources/HapticTyper.m
 
-BadooCapitalAI_CFLAGS = -fobjc-arc -Wno-unused-variable -Wno-nullability-completeness
+BadooCapitalAI_CFLAGS = -fobjc-arc -Wno-unused-variable -Wno-nullability-completeness -Wno-arc-performSelector-leaks
 BadooCapitalAI_FRAMEWORKS = UIKit Foundation
 BadooCapitalAI_PRIVATE_FRAMEWORKS = CoreHaptics
 
