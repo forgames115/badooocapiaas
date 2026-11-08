@@ -1,0 +1,77 @@
+name: Build BadooCapitalAI DEB
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang git curl ca-certificates perl python3 \
+            make xz-utils dpkg-dev fakeroot
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+
+      - name: Install iOS 16.5 SDK
+        run: |
+          mkdir -p "$HOME/theos/sdks"
+          curl -fL --retry 3 \
+            "https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz" \
+            -o "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz"
+          tar -xJf "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz" -C "$HOME/theos/sdks"
+
+      - name: Build Debian package
+        working-directory: BadooCapitalAI
+        run: |
+          make package FINALPACKAGE=1 THEOS="$HOME/theos"
+
+      - name: Verify package
+        id: package
+        working-directory: BadooCapitalAI
+        shell: bash
+        run: |
+          shopt -s nullglob
+          debs=(packages/*.deb)
+          if (( ${#debs[@]} == 0 )); then
+            echo "Build finished, but no .deb was created in BadooCapitalAI/packages/"
+            exit 1
+          fi
+          echo "deb_path=BadooCapitalAI/${debs[0]}" >> "$GITHUB_OUTPUT"
+          dpkg-deb --info "${debs[0]}"
+
+      - name: Upload DEB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BadooCapitalAI-DEB
+          path: ${{ steps.package.outputs.deb_path }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.deb_path }}
+          generate_release_notes: true
