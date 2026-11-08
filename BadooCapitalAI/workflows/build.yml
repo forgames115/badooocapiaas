@@ -1,0 +1,89 @@
+name: Build & Release .deb
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Install Theos ───────────────────────────────────────────────────
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            git curl ca-certificates make cmake \
+            clang lld llvm \
+            dpkg-dev fakeroot \
+            libplist-utils
+
+      - name: Set up Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      # ── 3. iOS SDK (iPhoneOS16.5 from theos-jailed mirror) ─────────────────
+      - name: Download iOS SDK
+        run: |
+          SDK_URL="https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz"
+          curl -sL "$SDK_URL" -o sdk.tar.xz
+          mkdir -p $HOME/theos/sdks
+          tar -xJf sdk.tar.xz -C $HOME/theos/sdks
+          rm sdk.tar.xz
+
+      # ── 4. Build .deb ──────────────────────────────────────────────────────
+      - name: Build
+        run: |
+          make package FINALPACKAGE=1 THEOS=$HOME/theos
+        env:
+          THEOS: ${{ env.THEOS }}
+
+      # ── 5. Rename .deb so the filename is predictable ─────────────────────
+      - name: Locate .deb
+        id: find_deb
+        run: |
+          DEB=$(find packages/ -name "*.deb" | head -1)
+          echo "deb_path=$DEB" >> $GITHUB_OUTPUT
+          echo "deb_name=$(basename $DEB)" >> $GITHUB_OUTPUT
+
+      # ── 6. Upload artifact on every build (PRs too) ───────────────────────
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BadooCapitalAI-deb
+          path: ${{ steps.find_deb.outputs.deb_path }}
+          retention-days: 30
+
+      # ── 7. Create GitHub Release when a tag is pushed (v*) ────────────────
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.find_deb.outputs.deb_path }}
+          name: ${{ github.ref_name }}
+          body: |
+            ## BadooCapitalAI ${{ github.ref_name }}
+
+            ### Install
+            ```bash
+            # On your jailbroken device (Dopamine / Sileo / Zebra):
+            dpkg -i BadooCapitalAI_*.deb
+            uicache -a
+            ```
+
+            ### After install
+            Settings → BadooCapitalAI → paste your Capital AI license key → enable toggle
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
