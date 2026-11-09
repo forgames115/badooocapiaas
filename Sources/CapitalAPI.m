@@ -16,15 +16,19 @@ static NSString *const kBaseURL = @"https://api.capitalbot.ai/generateResponse";
              contactName:(NSString *)contactName
               completion:(CapitalResponseBlock)completion {
 
-    // Ensure every message has a timestamp — API rejects without it
+    // 1. Ensure EVERY message has a timestamp (Required by API)
     NSMutableArray *safeHistory = [NSMutableArray new];
     NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+    
     for (NSDictionary *msg in chatHistory) {
         NSMutableDictionary *m = [msg mutableCopy];
-        if (!m[@"timestamp"]) m[@"timestamp"] = @((NSInteger)now);
+        if (!m[@"timestamp"]) {
+            m[@"timestamp"] = @((NSInteger)now);
+        }
         [safeHistory addObject:m];
     }
 
+    // 2. Build the exact payload from the API docs
     NSDictionary *body = @{
         @"licensekey"  : self.licenseKey ?: @"",
         @"modelId"     : @(self.modelId),
@@ -56,24 +60,26 @@ static NSString *const kBaseURL = @"https://api.capitalbot.ai/generateResponse";
             if (!data) { completion(@[], nil, nil); return; }
 
             NSError *parseErr;
-            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data
-                                                                 options:0
-                                                                   error:&parseErr];
+            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:&parseErr];
             if (parseErr || ![json isKindOfClass:[NSDictionary class]]) {
                 completion(nil, nil, parseErr);
                 return;
             }
 
-            // Skip-flags from Capital AI
-            if ([json[@"underage"]        boolValue] ||
-                [json[@"aiCreditOver"]    boolValue] ||
+            // 3. Handle Skip-Flags from Capital AI
+            if ([json[@"underage"] boolValue] ||
+                [json[@"aiCreditOver"] boolValue] ||
                 [json[@"messagedAlready"] boolValue] ||
                 [json[@"internalAccount"] boolValue] ||
-                [json[@"ignored"]         boolValue]) {
+                [json[@"ignored"] boolValue] ||
+                [json[@"converted"] boolValue]) {
+                
+                // If converted, messagedAlready, etc., send empty array to skip
                 completion(@[], json, nil);
                 return;
             }
 
+            // 4. Extract content array
             NSArray *content = json[@"content"];
             completion([content isKindOfClass:[NSArray class]] ? content : @[],
                        json[@"statistics"],
