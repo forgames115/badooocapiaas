@@ -2,7 +2,7 @@ TARGET = iphone:clang:16.5:15.0
 ARCHS = arm64 arm64e
 INSTALL_TARGET_PROCESSES = Badoo
 
-# THIS IS REQUIRED FOR DOPAMINE / ROOTLESS
+# Rootless pre Dopamine
 THEOS_PACKAGE_SCHEME = rootless
 
 include $(THEOS)/makefiles/common.mk
@@ -14,10 +14,12 @@ BadooCapitalAI_FILES = \
     Sources/HapticTyper.m \
     Sources/Tweak.x
 
+# Pridané -Wno-arc-performSelector-leaks na opravu chyby
 BadooCapitalAI_CFLAGS = -fobjc-arc \
     -Wno-unused-variable \
     -Wno-deprecated-declarations \
     -Wno-nullability-completeness \
+    -Wno-arc-performSelector-leaks \
     -fmodules \
     -fcxx-modules
 
