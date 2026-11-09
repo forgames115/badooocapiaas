@@ -2,6 +2,7 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnullability-completeness"
 #pragma clang diagnostic ignored "-Wobjc-protocol-method-implementation"
+#pragma clang diagnostic ignored "-Wobjc-method-access"
 
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
@@ -192,7 +193,6 @@ static BOOL BCActive = NO;
     id me = (id)self;
     if (!content.count) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [(UIViewController *)me navigationController].viewControllers; // keep ref
             [((UIViewController *)me).navigationController popViewControllerAnimated:NO];
             [listVC bc_processNext];
         });
