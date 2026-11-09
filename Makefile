@@ -9,14 +9,12 @@ BadooCapitalAI_FILES = \
 	Sources/CapitalAPI.m \
 	Sources/ConvoQueue.m \
 	Sources/HapticTyper.m \
+	Sources/BCEngine.m \
 	Sources/Tweak.x
 
-# CoreHaptics is public since iOS 13 → FRAMEWORKS not PRIVATE_FRAMEWORKS
 BadooCapitalAI_CFLAGS     = -fobjc-arc \
                              -Wno-unused-variable \
-                             -Wno-deprecated-declarations \
-                             -fmodules \
-                             -fcxx-modules
+                             -Wno-deprecated-declarations
 BadooCapitalAI_LDFLAGS    = -Wl,-segalign,4000
 BadooCapitalAI_FRAMEWORKS = UIKit Foundation CoreHaptics
 
