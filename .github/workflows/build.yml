@@ -9,20 +9,19 @@ on:
 
 jobs:
   build:
-    # Používame Ubuntu 22.04, aby sme obišli čakanie na Mac a mali stabilné prostredie
     runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── Inštalácia ldid (Oprava chyby "Unable to locate package ldid") ─────
+      # ── Inštalácia ldid ──────────────────────────────────────────────────────
       - name: Install ldid
         uses: MOZGIII/install-ldid-action@v1
         with:
           tag: v2.1.5-procursus2
 
-      # ── Ostatné závislosti (bez ldid, keďže ho riešime vyššie) ─────────────
+      # ── Ostatné závislosti ───────────────────────────────────────────────────
       - name: Install Dependencies
         run: |
           sudo apt-get update
@@ -47,7 +46,9 @@ jobs:
 
       # ── Build ────────────────────────────────────────────────────────────────
       - name: Build deb
-        run: gmake package FINALPACKAGE=1
+        run: |
+          export THEOS=$HOME/theos
+          gmake package FINALPACKAGE=1
 
       # ── Nájdenie .deb súboru ──────────────────────────────────────────────────
       - name: Find deb
@@ -57,7 +58,7 @@ jobs:
           echo "path=$DEB"             >> "$GITHUB_OUTPUT"
           echo "name=$(basename $DEB)" >> "$GITHUB_OUTPUT"
 
-      # ── Nahratie súboru (aby si si ho mohol stiahnuť) ────────────────────────
+      # ── Nahratie súboru ──────────────────────────────────────────────────────
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -65,7 +66,7 @@ jobs:
           path: ${{ steps.deb.outputs.path }}
           retention-days: 30
 
-      # ── Vytvorenie Release (len ak pridáš tag napr. v1.0) ────────────────────
+      # ── Vytvorenie Release (len pri tagoch) ──────────────────────────────────
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
