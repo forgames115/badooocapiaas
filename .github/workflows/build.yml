@@ -9,21 +9,17 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # macOS has Xcode clang natively — no cross-toolchain needed
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── System deps ─────────────────────────────────────────────────────────
-      - name: Install system deps
+      # ── Theos deps (ldid, make, etc.) ───────────────────────────────────────
+      - name: Install deps via Homebrew
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            git curl ca-certificates make \
-            clang lld \
-            dpkg-dev fakeroot \
-            xz-utils libplist-dev libxml2-dev
+          brew install ldid make xz
 
       # ── Theos ───────────────────────────────────────────────────────────────
       - name: Clone Theos
@@ -33,22 +29,18 @@ jobs:
           echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
 
       # ── iOS SDK ─────────────────────────────────────────────────────────────
-      # Two-step decompress: download .tar.xz → xz decompress → tar extract
-      # (matches Dopamine's own CI pattern which is known-good)
       - name: Download iOS 16.5 SDK
         run: |
           mkdir -p "$HOME/theos/sdks"
           curl -fL \
             "https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz" \
-            --output "$HOME/theos/sdks/iPhoneOS16.5.sdk.tar.xz"
-          # decompress xz → .tar, then extract
-          xz -d "$HOME/theos/sdks/iPhoneOS16.5.sdk.tar.xz"
-          tar -xf "$HOME/theos/sdks/iPhoneOS16.5.sdk.tar" -C "$HOME/theos/sdks"
-          rm -f "$HOME/theos/sdks/iPhoneOS16.5.sdk.tar"
+            -o "$HOME/theos/sdks/sdk.tar.xz"
+          tar -xJf "$HOME/theos/sdks/sdk.tar.xz" -C "$HOME/theos/sdks"
+          rm "$HOME/theos/sdks/sdk.tar.xz"
 
       # ── Build ────────────────────────────────────────────────────────────────
       - name: Build deb
-        run: make package FINALPACKAGE=1
+        run: gmake package FINALPACKAGE=1
         env:
           THEOS: ${{ env.THEOS }}
 
