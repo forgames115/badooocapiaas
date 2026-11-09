@@ -1,0 +1,9 @@
+Package: com.jb.badoocapitalai
+Name: BadooCapitalAI
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: Badoo x Capital AI automation tweak
+Maintainer: JB
+Author: JB
+Section: Tweaks
+Depends: mobilesubstrate | substitute | libhooker, firmware (>= 14.0)
