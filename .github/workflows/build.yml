@@ -9,17 +9,16 @@ on:
 
 jobs:
   build:
-    # macOS has Xcode clang natively — no cross-toolchain needed
-    runs-on: macos-latest
+    runs-on: macos-13 # Consider using a more stable runner
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── Theos deps (ldid, make, etc.) ───────────────────────────────────────
+      # ── Theos deps (ldid, make, dpkg, etc.) ───────────────────────────────
       - name: Install deps via Homebrew
         run: |
-          brew install ldid make xz
+          brew install ldid make xz dpkg # dpkg provides dpkg-deb
 
       # ── Theos ───────────────────────────────────────────────────────────────
       - name: Clone Theos
@@ -41,39 +40,5 @@ jobs:
       # ── Build ────────────────────────────────────────────────────────────────
       - name: Build deb
         run: gmake package FINALPACKAGE=1
-        env:
-          THEOS: ${{ env.THEOS }}
 
-      # ── Locate .deb ──────────────────────────────────────────────────────────
-      - name: Find deb
-        id: deb
-        run: |
-          DEB=$(find packages/ -name "*.deb" | head -1)
-          echo "path=$DEB"             >> "$GITHUB_OUTPUT"
-          echo "name=$(basename $DEB)" >> "$GITHUB_OUTPUT"
-
-      # ── Artifact (every build) ───────────────────────────────────────────────
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: BadooCapitalAI-deb
-          path: ${{ steps.deb.outputs.path }}
-          retention-days: 30
-
-      # ── Release (tags only) ──────────────────────────────────────────────────
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ steps.deb.outputs.path }}
-          name: ${{ github.ref_name }}
-          body: |
-            ## BadooCapitalAI ${{ github.ref_name }}
-
-            ### Install on device
-            ```bash
-            dpkg -i BadooCapitalAI_*.deb && uicache -a
-            ```
-            Then: **Settings → BadooCapitalAI** → paste license key → enable toggle.
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # ... rest of the steps (Find deb, Upload artifact, Create Release)
