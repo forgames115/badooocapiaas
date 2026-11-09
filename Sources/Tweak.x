@@ -1,4 +1,3 @@
-// Suppress nullability warnings
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnullability-completeness"
 #pragma clang diagnostic ignored "-Wobjc-protocol-method-implementation"
@@ -11,26 +10,27 @@
 #import "ConvoQueue.h"
 #import "HapticTyper.h"
 
-// ── Jitter ───────────────────────────────────────────────────────────────────
+// ── Jitter for human-like delays ─────────────────────────────────────────────
 static NSTimeInterval TKJitter(double baseMs) {
     double u1 = (double)arc4random() / (double)UINT32_MAX;
     double u2 = (double)arc4random() / (double)UINT32_MAX;
     return baseMs * (0.6 + ((u1 + u2) / 2.0) * 0.8) / 1000.0;
 }
 
-// ── Prefs ────────────────────────────────────────────────────────────────────
-static NSString *const kPrefPath = @"/var/mobile/Library/Preferences/com.jb.badoocapitalai.plist";
-static NSDictionary *BCPrefs(void) { return [NSDictionary dictionaryWithContentsOfFile:kPrefPath] ?: @{}; }
-static BOOL BCEnabled(void) { return [BCPrefs()[@"enabled"] boolValue]; }
+// ── Prefs (Using NSUserDefaults for Rootless compatibility) ──────────────────
+static NSString *const kPrefSuite = @"com.jb.badoocapitalai";
+static NSUserDefaults *BCPrefs(void) { return [[NSUserDefaults alloc] initWithSuiteName:kPrefSuite]; }
+static BOOL BCEnabled(void) { return [BCPrefs() boolForKey:@"enabled"]; }
 
 // ── History builder ──────────────────────────────────────────────────────────
 static NSArray<NSDictionary *> *BCHistory(NSArray *msgs) {
     NSMutableArray *out = [NSMutableArray new];
     NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+    
     for (id m in msgs) {
-        NSString *text  = [m valueForKey:@"text"] ?: @"";
-        NSDate   *date  = [m valueForKey:@"timestamp"];
-        BOOL      mine  = [[m valueForKey:@"isOwn"] boolValue] || [[m valueForKey:@"isOutgoing"] boolValue];
+        NSString *text = [m valueForKey:@"text"] ?: @"";
+        NSDate *date = [m valueForKey:@"timestamp"];
+        BOOL mine = [[m valueForKey:@"isOwn"] boolValue];
         NSString *media = [m valueForKey:@"mediaType"];
         
         if (!text.length) {
@@ -39,6 +39,7 @@ static NSArray<NSDictionary *> *BCHistory(NSArray *msgs) {
             else if ([media isEqualToString:@"audio"]) text = @"*AUDIO*";
             else continue;
         }
+        
         [out addObject:@{
             @"role"      : mine ? @"bot" : @"user",
             @"content"   : text,
@@ -48,28 +49,21 @@ static NSArray<NSDictionary *> *BCHistory(NSArray *msgs) {
     return out;
 }
 
-static NSTimeInterval BCThink(NSString *t) {
-    return 1.5 + (double)arc4random_uniform(25)/10.0 + MIN((double)t.length/60.0, 2.0);
-}
-
 // ── Associated-object keys ───────────────────────────────────────────────────
 static const char kBotActive[] = "bcai_active";
 static const char kBotQueue[]  = "bcai_queue";
 
-// ─────────────────────────────────────────────────────────────────────────────
 @interface NSObject (BCAIHelpers)
 - (void)bc_scanAndStart;
 - (void)bc_processNext;
-- (void)bc_deliver:(NSArray *)content;
+- (void)bc_deliver:(NSArray *)content listVC:(id)listVC;
 - (UIView *)bc_findInputField;
 - (UIView *)bc_findClass:(Class)cls in:(UIView *)root;
 - (void)bc_tapSend;
 - (UIView *)bc_findSend:(UIView *)root;
-- (void)bc_sendDirect:(NSString *)text;
-- (void)bc_sendMedia:(NSString *)urlStr type:(NSString *)type completion:(void (^)(void))done;
 @end
 
-#pragma mark - List VC (Chats Tab)
+#pragma mark - List VC (Chats Tab Scanning)
 
 %hook BDChatConversationListViewController
 
@@ -79,19 +73,14 @@ static const char kBotQueue[]  = "bcai_queue";
     
     id me = (id)self;
     BOOL isActive = [objc_getAssociatedObject(me, kBotActive) boolValue];
-    if (!isActive) {
-        [me bc_scanAndStart];
-    }
+    if (!isActive) [me bc_scanAndStart];
 }
 
 %new
 - (void)bc_scanAndStart {
     id me = (id)self;
     UITableView *tv = [me valueForKey:@"tableView"];
-    if (!tv) {
-        // Fallback: find tableview in view hierarchy
-        tv = (UITableView *)[me bc_findClass:[UITableView class] in:((UIViewController *)me).view];
-    }
+    if (!tv) tv = (UITableView *)[me bc_findClass:[UITableView class] in:((UIViewController *)me).view];
     if (!tv) return;
 
     NSMutableArray *newRows = [NSMutableArray array];
@@ -102,18 +91,25 @@ static const char kBotQueue[]  = "bcai_queue";
         UITableViewCell *cell = [tv cellForRowAtIndexPath:ip];
         if (!cell) continue;
         
-        // Scan the cell's UI for the "New message" text or unread badge
         BOOL isNew = NO;
+        BOOL isOnline = NO;
+        
+        // Scan cell UI for "New message" or Online indicator (green dot)
         for (UIView *v in cell.contentView.subviews) {
             if ([v isKindOfClass:[UILabel class]]) {
                 UILabel *l = (UILabel *)v;
-                if ([l.text localizedCaseInsensitiveContainsString:@"New message"] || [l.text isEqualToString:@"Unread"]) {
-                    isNew = YES; break;
-                }
+                if ([l.text localizedCaseInsensitiveContainsString:@"New message"]) isNew = YES;
+            }
+            // Check for green dot (online status)
+            if ([v isKindOfClass:[UIView class]] && v.backgroundColor && CGColorEqualToColor(v.backgroundColor.CGColor, [UIColor greenColor].CGColor)) {
+                isOnline = YES;
             }
         }
         
-        if (isNew) {
+        // Priority 1: Online + Unread. Priority 2: Unread. Priority 3: Just Online.
+        if (isOnline && isNew) {
+            [newRows insertObject:ip atIndex:0]; // Highest priority
+        } else if (isNew || isOnline) {
             [newRows addObject:ip];
         }
     }
@@ -159,7 +155,6 @@ static const char kBotQueue[]  = "bcai_queue";
     id me = (id)self;
     UIViewController *meVC = (UIViewController *)me;
     
-    // Check if we were opened by the bot
     UIViewController *listVC = nil;
     for (UIViewController *vc in meVC.navigationController.viewControllers) {
         if ([vc isKindOfClass:NSClassFromString(@"BDChatConversationListViewController")]) {
@@ -168,17 +163,11 @@ static const char kBotQueue[]  = "bcai_queue";
     }
     
     if (!listVC) return;
-    BOOL isActive = [objc_getAssociatedObject(listVC, kBotActive) boolValue];
-    if (!isActive) return;
+    if (![objc_getAssociatedObject(listVC, kBotActive) boolValue]) return;
 
-    // Grab the conversation object to get history
+    // Extract history from Badoo's internal conversation object
     id conv = [me valueForKey:@"conversation"];
-    NSArray *msgs = [conv valueForKey:@"messages"] ?: [conv valueForKey:@"chatHistory"];
-    
-    // If KVC fails to find messages, try to scrape the chat UI (fallback)
-    if (!msgs) {
-        msgs = @[]; // Badoo might not expose history via KVC directly
-    }
+    NSArray *msgs = [conv valueForKey:@"messages"] ?: [conv valueForKey:@"chatHistory"] ?: @[];
     
     NSArray *history = BCHistory(msgs);
     NSString *contactName = [conv valueForKey:@"name"] ?: @"Match";
@@ -189,8 +178,9 @@ static const char kBotQueue[]  = "bcai_queue";
                                 contactId:contactId
                               contactName:contactName
                                completion:^(NSArray *content, NSDictionary *stats, NSError *err) {
+        
+        // If error, API skip-flag (converted, ignored), or empty -> go back to list
         if (err || !content.count) {
-            // If AI fails or no response, skip to next
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
                 [meVC.navigationController popViewControllerAnimated:YES];
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
@@ -200,6 +190,7 @@ static const char kBotQueue[]  = "bcai_queue";
             return;
         }
         
+        // Deliver the content array
         dispatch_async(dispatch_get_main_queue(), ^{
             [me bc_deliver:content listVC:listVC];
         });
@@ -212,12 +203,10 @@ static const char kBotQueue[]  = "bcai_queue";
     
     // Done sending messages
     if (!content.count) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             UIViewController *vc = (UIViewController *)me;
             [vc.navigationController popViewControllerAnimated:YES];
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 [listVC bc_processNext];
             });
         });
@@ -234,29 +223,26 @@ static const char kBotQueue[]  = "bcai_queue";
     if ([type isEqualToString:@"text"]) {
         UIView *field = [me bc_findInputField];
         
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(BCThink(body) * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
+        // Human thinking delay
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(TKJitter(3500) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             if (field && [field respondsToSelector:@selector(insertText:)]) {
                 [[HapticTyper shared] typeText:body intoResponder:(UIResponder<UITextInput> *)field completion:^{
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(TKJitter(200) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(TKJitter(800) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                         [me bc_tapSend];
-                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(TKJitter(1500) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                             [me bc_deliver:rest listVC:listVC];
                         });
                     });
                 }];
             } else {
-                [me bc_sendDirect:body];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(TKJitter(700) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                // Fallback if text field isn't found
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(TKJitter(500) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                     [me bc_deliver:rest listVC:listVC];
                 });
             }
         });
-    } else if ([type isEqualToString:@"image"] || [type isEqualToString:@"video"]) {
-        [me bc_sendMedia:body type:type completion:^{
-            [me bc_deliver:rest listVC:listVC];
-        }];
     } else {
+        // Skip images/videos for now to keep it undetected (or add media logic later)
         [me bc_deliver:rest listVC:listVC];
     }
 }
@@ -301,8 +287,8 @@ static const char kBotQueue[]  = "bcai_queue";
     if (!root) return nil;
     if ([root isKindOfClass:[UIButton class]]) {
         UIButton *b = (UIButton *)root;
-        // Badoo send button might have an image or text
-        if ([[b titleForState:UIControlStateNormal] containsString:@"Send"] || b.tag == 42 || b.imageView.image) {
+        // Badoo usually uses an arrow or paper plane image for send
+        if (b.tag == 42 || b.imageView.image || [[b titleForState:UIControlStateNormal] containsString:@"Send"]) {
             return b;
         }
     }
@@ -313,40 +299,23 @@ static const char kBotQueue[]  = "bcai_queue";
     return nil;
 }
 
-%new
-- (void)bc_sendDirect:(NSString *)text {
-    id me = (id)self;
-    SEL sels[] = { @selector(sendMessage:), @selector(sendTextMessage:), @selector(sendChatMessage:) };
-    for (int i = 0; i < 3; i++) {
-        if ([me respondsToSelector:sels[i]]) { [me performSelector:sels[i] withObject:text]; return; }
-    }
-    UIView *f = [me bc_findInputField];
-    if (f) {
-        if ([f isKindOfClass:[UITextField class]]) ((UITextField *)f).text = text;
-        else if ([f isKindOfClass:[UITextView class]]) ((UITextView *)f).text = text;
-        [me bc_tapSend];
-    }
-}
-
-%new
-- (void)bc_sendMedia:(NSString *)urlStr type:(NSString *)type completion:(void (^)(void))done {
-    // ... [Keep your existing media code] ...
-    done(); 
-}
-
 %end
 
 #pragma mark - Constructor
 
 %ctor {
-    if (![[NSFileManager defaultManager] fileExistsAtPath:kPrefPath]) {
-        [@{ @"enabled" : @NO, @"licenseKey" : @"YOUR_LICENSE_KEY", @"modelId" : @(43), @"presetId" : @(88) }
-         writeToFile:kPrefPath atomically:YES];
+    NSUserDefaults *prefs = BCPrefs();
+    if (![prefs objectForKey:@"enabled"]) {
+        [prefs setBool:NO forKey:@"enabled"];
+        [prefs setObject:@"YOUR_LICENSE_KEY" forKey:@"licenseKey"];
+        [prefs setInteger:43 forKey:@"modelId"];
+        [prefs setInteger:88 forKey:@"presetId"];
+        [prefs synchronize];
     }
-    NSDictionary *p = BCPrefs();
-    [CapitalAPI shared].licenseKey = p[@"licenseKey"] ?: @"";
-    [CapitalAPI shared].modelId    = [p[@"modelId"]  integerValue] ?: 43;
-    [CapitalAPI shared].presetId   = [p[@"presetId"] integerValue] ?: 88;
+    
+    [CapitalAPI shared].licenseKey = [prefs stringForKey:@"licenseKey"] ?: @"";
+    [CapitalAPI shared].modelId    = [prefs integerForKey:@"modelId"] ?: 43;
+    [CapitalAPI shared].presetId   = [prefs integerForKey:@"presetId"] ?: 88;
 }
 
 #pragma clang diagnostic pop
