@@ -5,7 +5,6 @@ INSTALL_TARGET_PROCESSES = Badoo
 include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = BadooCapitalAI
-
 BadooCapitalAI_FILES = \
     Sources/CapitalAPI.m \
     Sources/ConvoQueue.m \
