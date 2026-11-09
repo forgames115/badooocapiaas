@@ -10,7 +10,7 @@ on:
 jobs:
   build:
     # Use Ubuntu instead of macOS to bypass the queue and save minutes!
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout
