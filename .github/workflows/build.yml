@@ -9,50 +9,50 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    # macOS has Xcode clang natively — no cross-toolchain needed
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      # ── Theos deps (ldid, make, etc.) ───────────────────────────────────────
+      - name: Install deps via Homebrew
         run: |
-          sudo apt-get update
-          sudo apt-get install -y make git fakeroot dpkg-dev clang xz-utils curl
+          brew install ldid make xz
 
-      - name: Install Theos
+      # ── Theos ───────────────────────────────────────────────────────────────
+      - name: Clone Theos
         run: |
-          export THEOS=$HOME/theos
-          git clone --recursive --depth=1 https://github.com/theos/theos.git $THEOS
-          # CI=1 zabezpečí, že inštalácia prebehne bez interaktívnych otázok
-          CI=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+          git clone --recursive --depth=1 \
+            https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
 
-      - name: Verify Toolchain
+      # ── iOS SDK ─────────────────────────────────────────────────────────────
+      - name: Download iOS 16.5 SDK
         run: |
-          export THEOS=$HOME/theos
-          ls -la $THEOS/toolchain/linux/iphone/bin/clang
-          $THEOS/toolchain/linux/iphone/bin/clang --version
+          mkdir -p "$HOME/theos/sdks"
+          curl -fL \
+            "https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz" \
+            -o "$HOME/theos/sdks/sdk.tar.xz"
+          tar -xJf "$HOME/theos/sdks/sdk.tar.xz" -C "$HOME/theos/sdks"
+          rm "$HOME/theos/sdks/sdk.tar.xz"
 
-      - name: Download iOS SDK
-        run: |
-          export THEOS=$HOME/theos
-          mkdir -p $THEOS/sdks
-          curl -fL https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz -o $THEOS/sdks/sdk.tar.xz
-          tar -xJf $THEOS/sdks/sdk.tar.xz -C $THEOS/sdks
-          rm $THEOS/sdks/sdk.tar.xz
-
+      # ── Build ────────────────────────────────────────────────────────────────
       - name: Build deb
-        run: |
-          export THEOS=$HOME/theos
-          gmake package FINALPACKAGE=1
+        run: gmake package FINALPACKAGE=1
+        env:
+          THEOS: ${{ env.THEOS }}
 
+      # ── Locate .deb ──────────────────────────────────────────────────────────
       - name: Find deb
         id: deb
         run: |
           DEB=$(find packages/ -name "*.deb" | head -1)
-          echo "path=$DEB" >> "$GITHUB_OUTPUT"
+          echo "path=$DEB"             >> "$GITHUB_OUTPUT"
           echo "name=$(basename $DEB)" >> "$GITHUB_OUTPUT"
 
+      # ── Artifact (every build) ───────────────────────────────────────────────
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -60,6 +60,7 @@ jobs:
           path: ${{ steps.deb.outputs.path }}
           retention-days: 30
 
+      # ── Release (tags only) ──────────────────────────────────────────────────
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -68,6 +69,11 @@ jobs:
           name: ${{ github.ref_name }}
           body: |
             ## BadooCapitalAI ${{ github.ref_name }}
+
             ### Install on device
             ```bash
             dpkg -i BadooCapitalAI_*.deb && uicache -a
+            ```
+            Then: **Settings → BadooCapitalAI** → paste license key → enable toggle.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
